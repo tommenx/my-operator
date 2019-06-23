@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/api"
 	"github.com/prometheus/client_golang/api/prometheus/v1"
@@ -48,19 +48,18 @@ func (m *monitor) GetStoreSize(ctx context.Context) ([]*Storage, error) {
 		glog.Errorf("err is %+v", err)
 		return nil, err
 	}
-	//val, ok := storeSize.
-	//if !ok {
-	//	glog.Errorf("parse store size error")
-	//	return nil, errors.New("store size is not vector type")
-	//}
-	//list := []*Storage{}
-	//for _, v := range val {
-	//	key := model.LabelName("instance")
-	//	list = append(list, &Storage{
-	//		Name: string(v.Metric[key]),
-	//		Size: float64(v.Value),
-	//	})
-	//}
-	fmt.Println(storeSize)
-	return nil , nil
+	val, ok := storeSize.(model.Vector)
+	if !ok {
+		glog.Errorf("parse store size error")
+		return nil, errors.New("store size is not vector type")
+	}
+	list := []*Storage{}
+	for _, v := range val {
+		key := model.LabelName("instance")
+		list = append(list, &Storage{
+			Name: string(v.Metric[key]),
+			Size: float64(v.Value),
+		})
+	}
+	return list, nil
 }

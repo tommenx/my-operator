@@ -3,7 +3,7 @@ package kubeutils
 import "testing"
 
 func TestGet(t *testing.T) {
-	materUrl := "10.77.110.140"
+	materUrl := ""
 	path := "/root/.kube/config"
 	client := NewKubeClient(materUrl, path)
 	tidbCluster, err := client.Get("tidb", "tidb-cluster")
