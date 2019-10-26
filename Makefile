@@ -12,7 +12,7 @@ $(error Please upgrade your Go compiler to 1.11 or higher version)
 endif
 
 # Enable GO111MODULE=on explicitly, disable it with GO111MODULE=off when necessary.
-export GO111MODULE := on
+export GO111MODULE := off
 GOOS := $(if $(GOOS),$(GOOS),linux)
 GOARCH := $(if $(GOARCH),$(GOARCH),amd64)
 GOENV  := GO15VENDOREXPERIMENT="1" CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH)

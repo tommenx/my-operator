@@ -328,6 +328,9 @@ func (tkmm *tikvMemberManager) getNewSetForTidbCluster(tc *v1alpha1.TidbCluster)
 	tikvLabel := tkmm.labelTiKV(tc)
 	setName := controller.TiKVMemberName(tcName)
 	podAnnotations := CombineAnnotations(controller.AnnProm(20180), tc.Spec.TiKV.Annotations)
+	podAnnotations["storage.io/storage"] = "enable"
+	podAnnotations["storage.io/label"] = "fast"
+	podAnnotations["storage.io/docker"] = "tikv"
 	capacity := controller.TiKVCapacity(tc.Spec.TiKV.Limits)
 	headlessSvcName := controller.TiKVPeerMemberName(tcName)
 	storageClassName := tc.Spec.TiKV.StorageClassName

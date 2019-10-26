@@ -73,7 +73,7 @@ pd:
   # different classes might map to quality-of-service levels, or to backup policies,
   # or to arbitrary policies determined by the cluster administrators.
   # refer to https://kubernetes.io/docs/concepts/storage/storage-classes
-  storageClassName: local-storage
+  storageClassName: csi-lvm
 
   # Image pull policy.
   imagePullPolicy: IfNotPresent
@@ -176,13 +176,10 @@ tikv:
   # (choose the version matching your tikv) for detailed explanation of each parameter.
   config: |
     log-level = "info"
-  # # Here are some parameters you MUST customize (Please configure in the above `tikv.config` section):
-  #
-  # [readpool.coprocessor]
-  #   # Normally these three parameters should be tuned to 80% of `tikv.resources.limits.cpu`, for example: 10000m -> 8
-  #   high-concurrency = 8
-  #   normal-concurrency = 8
-  #   low-concurrency = 8
+    [readpool.coprocessor]
+    high-concurrency = 8
+    normal-concurrency = 8
+    low-concurrency = 8
   #
   # # For TiKV v2.x:
   # [rocksdb.defaultcf]
@@ -197,11 +194,11 @@ tikv:
   # # From TiKV v3.0.0 on, you do not need to configure
   # #  [rocksdb.defaultcf].block-cache-size and [rocksdb.writecf].block-cache-size.
   # # Instead, configure [storage.block-cache] as below:
-  # [storage.block-cache]
-  #   shared = true
+    [storage.block-cache]
+    shared = true
   #
   #   # Normally it should be tuned to 30%-50% of `tikv.resources.limits.memory`, for example: 32Gi -> 16GB
-  #   capacity = "1GB"
+    capacity = "8GB"
   # Note that we can't set raftstore.capacity in config because it will be overridden by the command line parameter, 
   # we can only set capacity in tikv.resources.limits.storage.
 
@@ -211,7 +208,7 @@ tikv:
   # different classes might map to quality-of-service levels, or to backup policies,
   # or to arbitrary policies determined by the cluster administrators.
   # refer to https://kubernetes.io/docs/concepts/storage/storage-classes
-  storageClassName: local-storage
+  storageClassName: csi-lvm
 
   # Image pull policy.
   imagePullPolicy: IfNotPresent
@@ -327,7 +324,7 @@ tidb:
     type: NodePort
     exposeStatus: true
     # annotations:
-      # cloud.google.com/load-balancer-type: Internal
+    # cloud.google.com/load-balancer-type: Internal
   separateSlowLog: true
   slowLogTailer:
     image: busybox:1.26.2
@@ -395,12 +392,12 @@ monitor:
     service:
       type: NodePort
     resources: {}
-      # limits:
-      #  cpu: 50m
-      #  memory: 64Mi
-      # requests:
-      #  cpu: 50m
-      #  memory: 64Mi
+    # limits:
+    #  cpu: 50m
+    #  memory: 64Mi
+    # requests:
+    #  cpu: 50m
+    #  memory: 64Mi
   grafana:
     create: true
     image: grafana/grafana:6.0.1
@@ -442,9 +439,9 @@ monitor:
     reserveDays: 12
     # alertmanagerURL: ""
   nodeSelector: {}
-    # kind: monitor
-    # zone: cn-bj1-01,cn-bj1-02
-    # region: cn-bj1
+  # kind: monitor
+  # zone: cn-bj1-01,cn-bj1-02
+  # region: cn-bj1
   tolerations: []
   # - key: node-role
   #   operator: Equal
@@ -534,17 +531,17 @@ binlog:
     destDBType: file
     mysql: {}
       # host: "127.0.0.1"
-      # user: "root"
-      # password: ""
-      # port: 3306
-      # # Time and size limits for flash batch write
-      # timeLimit: "30s"
-      # sizeLimit: "100000"
+    # user: "root"
+    # password: ""
+    # port: 3306
+    # # Time and size limits for flash batch write
+    # timeLimit: "30s"
+    # sizeLimit: "100000"
     kafka: {}
-      # only need config one of zookeeper-addrs and kafka-addrs, will get kafka address if zookeeper-addrs is configed.
-      # zookeeperAddrs: "127.0.0.1:2181"
-      # kafkaAddrs: "127.0.0.1:9092"
-      # kafkaVersion: "0.8.2.0"
+    # only need config one of zookeeper-addrs and kafka-addrs, will get kafka address if zookeeper-addrs is configed.
+    # zookeeperAddrs: "127.0.0.1:2181"
+    # kafkaAddrs: "127.0.0.1:9092"
+    # kafkaVersion: "0.8.2.0"
     resources:
       limits: {}
       #   cpu: 8000m
@@ -655,12 +652,12 @@ importer:
   storageClassName: local-storage
   storage: 200Gi
   resources: {}
-    # limits:
-    #   cpu: 16000m
-    #   memory: 8Gi
-    # requests:
-    #   cpu: 16000m
-    #   memory: 8Gi
+  # limits:
+  #   cpu: 16000m
+  #   memory: 8Gi
+  # requests:
+  #   cpu: 16000m
+  #   memory: 8Gi
   affinity: {}
   tolerations: []
   pushgatewayImage: prom/pushgateway:v0.3.1

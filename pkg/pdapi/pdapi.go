@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -119,6 +120,8 @@ type PDClient interface {
 	GetPDLeader() (*pdpb.Member, error)
 	// TransferPDLeader transfers pd leader to specified member
 	TransferPDLeader(name string) error
+	// SetRegionScheduleLimit set max region schedule
+	SetRegionScheduleLimit(value string) error
 }
 
 var (
@@ -255,6 +258,37 @@ func (pc *pdClient) GetConfig() (*server.Config, error) {
 		return nil, err
 	}
 	return config, nil
+}
+
+func (pc *pdClient) SetRegionScheduleLimit(value string) error {
+	var val interface{}
+	apiURL := fmt.Sprintf("%s/%s", pc.url, configPrefix)
+	data := make(map[string]interface{})
+	val, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		val = value
+	}
+	data["region-schedule-limit"] = val
+	reqData, err := json.Marshal(data)
+	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewBuffer(reqData))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		return err
+	}
+	res, err := pc.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer httputil.DeferClose(req.Body)
+	if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("failed to set region schedule limit: %v", string(body))
+
 }
 
 func (pc *pdClient) GetCluster() (*metapb.Cluster, error) {
