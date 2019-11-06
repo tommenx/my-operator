@@ -650,3 +650,12 @@ func readJSON(r io.ReadCloser, data interface{}) error {
 
 	return nil
 }
+func TestPdClient_GetStores(t *testing.T) {
+	pdCli := NewPDClient("http://10.77.110.131:30971", time.Second, false)
+	stores, err := pdCli.GetStores()
+	if err != nil {
+		t.Errorf("get store error, err=%+v", err)
+		return
+	}
+	t.Logf("stores is : %+v", *stores)
+}

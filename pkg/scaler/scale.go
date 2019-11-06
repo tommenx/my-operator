@@ -4,11 +4,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/pingcap/tidb-operator/pkg/cdapi"
 	"github.com/pingcap/tidb-operator/pkg/kubeutil"
-	"time"
-)
-
-var (
-	defaultTimeout = 2 * time.Second
 )
 
 type scaleController struct {
@@ -36,7 +31,6 @@ func NewScaleController(cdClient cdapi.CDClient, kubeUtil kubeutil.KubeClient) S
 }
 
 func (s *scaleController) ScaleOut(ns, name string, count int32) error {
-	glog.Infof("tikv scale to %d", count)
 	return s.kubeUtil.ScaleOutTiKV(ns, name, count)
 }
 
@@ -66,4 +60,8 @@ func (s *scaleController) ScaleUpAll(ns, tag, val string, limit *IsolationLimit)
 	}
 	glog.Infof("scale up batch pod success")
 	return nil
+}
+
+type AutoScale interface {
+	Run(stopCh chan struct{})
 }

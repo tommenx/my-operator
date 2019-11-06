@@ -1,0 +1,23 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: ycsb
+  name: ycsb
+spec:
+  relicas: 1
+  template:
+    metadata:
+      labels:
+        app: ycsb
+    spec:
+      containers:
+        - image: registry:5000/ycsb:latest
+          imagePullPolicy: IfNotPresent
+          name: ycsb
+          args:
+            - "load"
+            - "tikv"
+            - "-p tikv.pd=tidb-cluster-pd:2379"
+            - "-P workloads/workloada"
+            - "-p recordcount = 10000"

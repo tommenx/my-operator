@@ -66,10 +66,11 @@ func (c *kubeClient) ScaleOutTiKV(ns, name string, replica int32) error {
 	//	glog.Errorf("origin replica %d, now %d, abort it", origin, replica)
 	//	return nil
 	//}
-	origin += replica
+	count := origin + replica
 
-	tidbCluster.Spec.TiKV.Replicas = origin
+	tidbCluster.Spec.TiKV.Replicas = count
 	_, err = c.tidbClient.PingcapV1alpha1().TidbClusters(ns).Update(tidbCluster)
+	glog.Infof("scale out tikv from %d to %d\n", origin, count)
 	return err
 }
 

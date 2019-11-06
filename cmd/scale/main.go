@@ -2,65 +2,51 @@ package main
 
 import (
 	"flag"
-	"github.com/golang/glog"
+	"fmt"
 	"github.com/pingcap/tidb-operator/pkg/cdapi"
 	"github.com/pingcap/tidb-operator/pkg/kubeutil"
-	scaler "github.com/pingcap/tidb-operator/pkg/scaler"
-	"strconv"
+	"github.com/pingcap/tidb-operator/pkg/scaler"
+	"github.com/pingcap/tidb-operator/pkg/store"
+	"sync"
 	"time"
 )
 
 var (
-	upBound     = 10
-	originCount = 2
+	coordinator    string
+	configPath     string
+	pdURL          string
+	defaultTimeout = time.Second * 5
+	kind           string
+	wg             sync.WaitGroup
+	scaleOutStep   = int32(2)
+	replica        = int32(4)
+	resourceLimit  = 60
+	etcdPath       string
 )
 
 func init() {
 	flag.Set("logtostderr", "true")
+	flag.StringVar(&kind, "kind", "old", "specify auto scale kind")
+	flag.StringVar(&coordinator, "coordinator", "10.77.30.147:8888", "specify coordinator path")
+	flag.StringVar(&configPath, "config", "/root/.kube/config", "specify config path")
+	flag.StringVar(&etcdPath, "etcd", "127.0.0.1:2389", "specify etcd url")
 }
 
 func main() {
 	flag.Parse()
-	coordinatorAPI := "http://10.77.30.147:8888"
-	configPath := "/Users/tommenx/.kube/config"
-	timeout := time.Second * 5
-	period := time.Second * 10
-	cd := cdapi.NewCDClient(coordinatorAPI, timeout)
-	kube := kubeutil.NewFakeKubeClient(configPath)
+	coordinatorAPI := fmt.Sprintf("http://%s", coordinator)
+	cd := cdapi.NewCDClient(coordinatorAPI, defaultTimeout)
+	kube := kubeutil.NewKubeClient(configPath)
 	scale := scaler.NewScaleController(cd, kube)
-	ticker := time.NewTicker(period)
-	for {
-		select {
-		case <-ticker.C:
-			go checkAndScale(cd, scale)
-		}
+	db := store.NewEtcdHandler([]string{etcdPath})
+	stopCh := make(chan struct{})
+	var autoScale scaler.AutoScale
+	if kind == "old" {
+		autoScale = scaler.NewOldAutoScale(cd, scale, db, scaleOutStep, replica, resourceLimit)
+	} else if kind == "fancy" {
+		autoScale = scaler.NewFancyAutoScale(cd, scale, db, scaleOutStep, replica, resourceLimit)
 	}
-}
-
-func checkAndScale(cd cdapi.CDClient, scale scaler.ScaleController) error {
-	instances, err := cd.GetTiKVStatus()
-	if err != nil {
-		glog.Errorf("get tikve status error")
-	}
-	write := float64(0)
-	read := float64(0)
-	for _, instance := range instances {
-		r, _ := strconv.ParseFloat(instance.Read, 64)
-		w, _ := strconv.ParseFloat(instance.Write, 64)
-		write += w
-		read += r
-		glog.Infof("%s read:%s write:%s\n", instance.Name, instance.Read, instance.Write)
-	}
-	avgwrite := int(write) / len(instances)
-	avgread := int(read) / len(instances)
-	glog.Infof("avg read:%d write:%d\n", avgread, avgwrite)
-	if avgwrite > upBound || avgread > upBound {
-		glog.Infof("got to warning bound, start to scale out, write:%d,read=%d\n", write, read)
-		err = scale.ScaleOut("default", "ubuntu", 2)
-		if err != nil {
-			glog.Errorf("scale out error, err=%+v", err)
-			return err
-		}
-	}
-	return nil
+	wg.Add(1)
+	go autoScale.Run(stopCh)
+	wg.Wait()
 }

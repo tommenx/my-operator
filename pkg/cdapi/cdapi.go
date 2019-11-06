@@ -59,9 +59,9 @@ type CDClient interface {
 }
 
 var (
-	tikvStatusPrefix    = "/scheduler/util"
-	setOneLimitPrefix   = "/scheduler/setonepod"
-	setBatchLimitPrefix = "/scheduler/setbatchpod"
+	tikvStatusPrefix    = "/util"
+	setOneLimitPrefix   = "/setonepod"
+	setBatchLimitPrefix = "/setbatchpod"
 )
 
 func (cc *cdClient) GetTiKVStatus() ([]*Instance, error) {
