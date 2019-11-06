@@ -16,12 +16,13 @@ var (
 	reserveBW         = 20
 	upBWFactor        = 3.0
 	upBWCheckFactor   = 2.0
-	downBWCheckFactor = 4.0
+	downBWCheckFactor = 3.5
 	downBWFactor      = 1.5
-	reserveBWLimit    = 120
+	reserveBWLimit    = 30
 	scaleBWLimit      = 120
 	round             = 3
-	historyOp         = 5
+	downHistoryOp     = 5
+	upHistoryOp       = 3
 )
 
 type fancyAutoScaler struct {
@@ -32,13 +33,13 @@ type fancyAutoScaler struct {
 	step               int32
 	resourceTime       int
 	resourceAllocation int
-	resourceLimit      int
 	curLimit           float64
 	replica            int32
 	cd                 cdapi.CDClient
 	scaler             ScaleController
 	db                 store.DB
-	history            *list.List
+	upHistory          *list.List
+	downHistory        *list.List
 }
 
 func NewFancyAutoScale(cd cdapi.CDClient, scaler ScaleController, db store.DB, step int32, replica int32, resourceLimit int) AutoScale {
@@ -54,11 +55,11 @@ func NewFancyAutoScale(cd cdapi.CDClient, scaler ScaleController, db store.DB, s
 		scaler:             scaler,
 		cd:                 cd,
 		replica:            replica,
-		resourceLimit:      reserveBW,
 		curLimit:           float64(reserveBW),
 		resourceAllocation: reserveBW * int(replica),
 		db:                 db,
-		history:            list.New(),
+		upHistory:          list.New(),
+		downHistory:        list.New(),
 	}
 }
 
@@ -74,71 +75,113 @@ func (s *fancyAutoScaler) Run(stopCh chan struct{}) {
 	}
 }
 
-func (s *fancyAutoScaler) addHistory(val float64) {
-	s.history.PushBack(val)
-	if s.history.Len() > historyOp {
-		s.history.Remove(s.history.Front())
+func (s *fancyAutoScaler) addUpHistory(val float64) {
+	s.upHistory.PushBack(val)
+	if s.upHistory.Len() > upHistoryOp {
+		s.upHistory.Remove(s.upHistory.Front())
 	}
 }
 
-func (s *fancyAutoScaler) getAvgHistory() float64 {
+func (s *fancyAutoScaler) addDownHistory(val float64) {
+	s.downHistory.PushBack(val)
+	if s.downHistory.Len() > downHistoryOp {
+		s.downHistory.Remove(s.downHistory.Front())
+	}
+}
+
+func (s *fancyAutoScaler) getUpAvgHistory() float64 {
 	sum := float64(0)
-	for e := s.history.Front(); e != nil; e = e.Next() {
+	for e := s.upHistory.Front(); e != nil; e = e.Next() {
 		switch e.Value.(type) {
 		case float64:
 			sum += e.Value.(float64)
 		}
 	}
-	return sum / float64(s.history.Len())
+	return sum / float64(s.upHistory.Len())
+}
+
+func (s *fancyAutoScaler) getDownAvgHistory() float64 {
+	sum := float64(0)
+	for e := s.downHistory.Front(); e != nil; e = e.Next() {
+		switch e.Value.(type) {
+		case float64:
+			sum += e.Value.(float64)
+		}
+	}
+	return sum / float64(s.downHistory.Len())
 }
 
 func (s *fancyAutoScaler) checkAndScale() {
 	resourceTime := math.Ceil(float64(s.resourceTime) / 1024)
-	s.resourceTime += int(s.replica) * s.resourceLimit * epoch
+	s.resourceTime += int(s.replica) * int(s.curLimit) * epoch
 	avgWrite, avgRead, _ := s.getAvgBandwidth()
 	glog.Infof("avg-write %.1f, avg-read` %.1f allocation %d resource-time %d", avgWrite, avgRead, s.resourceAllocation, int(resourceTime))
 	maxOfOne := math.Max(avgWrite, avgRead)
-	s.addHistory(maxOfOne)
+	s.addUpHistory(maxOfOne)
+	s.addDownHistory(maxOfOne)
 	stateStr := "ACTIVE"
 	if s.state == 1 {
 		stateStr = "FROZEN"
 	}
-	avg := s.getAvgHistory()
-	glog.Infof("get history val %.1f. BW_Limit: %.1f. Tolerated Region:[%.1f <--> %.1f]", avg, s.curLimit, s.curLimit/downBWCheckFactor, s.curLimit/upBWCheckFactor)
+	avgUp := s.getUpAvgHistory()
+	avgDown := s.getDownAvgHistory()
+	glog.Infof("Avg Up: %.1f, Avg Down: %.1f. BW_Limit: %.1f. Tolerated Region:[%.1f <--> %.1f]", avgUp, avgDown, s.curLimit, s.curLimit/downBWCheckFactor, s.curLimit/upBWCheckFactor)
 	if s.state == ACTIVE {
-		if avg*upBWCheckFactor > s.curLimit {
-			//到达纵向扩容临界点
-			if avg*upBWCheckFactor >= float64(reserveBWLimit) {
-				glog.Infof("state is %s, max BW is %.1f, scale out", stateStr, avg)
-				//go s.scaleOut()
-				s.state = FROZEN
-			} else {
-				upBW := avg * upBWFactor
-				s.scaleUpAll(int(upBW))
-				s.curLimit = upBW
-				glog.Infof("state is %s, max BW is %.1f, scale up to %d", stateStr, avg, int(upBW))
-			}
-		} else if avg*downBWCheckFactor < s.curLimit {
-			downBW := avg * downBWFactor
-			s.scaleUpAll(int(downBW))
-			s.curLimit = downBW
-			glog.Infof("state is %s, max BW is %.1f, scale down to %d", stateStr, avg, int(downBW))
+		if avgDown >= float64(reserveBWLimit) {
+			// Scale OUT
+			glog.Infof("state is %s, max BW is %.1f, scale out", stateStr, avgUp)
+			// sleep 20s,等待新的实例启动
+			s.state = FROZEN
+
+			upBWFactor = 4.0
+			upBWCheckFactor = 3.5
+			downBWCheckFactor = 6
+			downBWFactor = 1.5
+
+			s.scaleOut()
 		}
 	} else if s.state == FROZEN {
-		if avg <= float64(lowBound) {
-			s.frozenOp++
+		glog.Infof("avg-up is %.1f, low bound is %d", avgUp, lowBound)
+		if avgUp <= float64(lowBound) {
+			s.frozenOp += 1
+			glog.Infof("get to low bound, op count is %d", s.frozenOp)
 		} else {
 			s.frozenOp = 0
 		}
-		if s.frozenOp > checkBalanceWindow && s.checkRegionBalance() {
+		//连续三次上限低于
+		if s.frozenOp > 3 && s.checkRegionBalance() {
 			glog.Infof("frozen operation is count is %d, state change to ACTIVE", s.frozenOp)
 			s.state = ACTIVE
+
+			upBWFactor = 3.0
+			upBWCheckFactor = 2.0
+			downBWCheckFactor = 3.5
+			downBWFactor = 1.5
 			s.frozenOp = 0
-		} else {
+		} else if s.frozenOp > 3 && !s.checkRegionBalance() {
 			s.frozenOp = 0
 		}
+		glog.Infof("state is FROZEN,op is %d", s.frozenOp)
 	}
-	s.resourceAllocation = s.resourceLimit * int(s.replica)
+
+	if avgUp*upBWCheckFactor > s.curLimit {
+		//到达纵向扩容临界点 Scale UP
+		upBW := avgUp * upBWFactor
+		if upBW > float64(scaleBWLimit) {
+			upBW = float64(scaleBWLimit)
+		}
+		s.scaleUpAll(int(upBW))
+		s.curLimit = upBW
+		glog.Infof("state is %s, max BW is %.1f, scale up to %d", stateStr, avgUp, int(upBW))
+	} else if avgDown*downBWCheckFactor < s.curLimit {
+		// Scale Down
+		downBW := avgDown * downBWFactor
+		s.scaleUpAll(int(downBW))
+		s.curLimit = downBW
+		glog.Infof("state is %s, max BW is %.1f, scale down to %d", stateStr, avgDown, int(downBW))
+	}
+
+	s.resourceAllocation = int(s.curLimit) * int(s.replica)
 
 }
 
@@ -175,21 +218,22 @@ func (s *fancyAutoScaler) scaleUpAll(num int) {
 	if err != nil {
 		glog.Errorf("scale up all %s:%s error, err=%+v", err)
 	}
-	s.resourceLimit = num
 }
 func (s *fancyAutoScaler) scaleOut() {
+	//TODO 暂时不加数
 	ns := "default"
 	name := "tidb-cluster"
 	err := s.scaler.ScaleOut(ns, name, s.step)
 	if err != nil {
 		glog.Errorf("scale out error, err=%+v", err)
 	}
-	//调用扩容命令，需要延迟5秒，等新的实例启动之后，设置限速值
-	time.Sleep(5 * time.Second)
-	s.scaleUpAll(scaleBWLimit)
+	//调用扩容命令，需要延迟20秒，等新的实例启动之后，设置限速值
+	time.Sleep(8 * time.Second)
 	s.replica += s.step
-	s.resourceLimit = scaleBWLimit
-	glog.Infof("scale out and up success, replica is %d BW limit is %d", s.replica, s.resourceLimit)
+
+	s.scaleUpAll(int(s.curLimit))
+	glog.Infof("scale out and up success, replica is %d BW limit is %.1f", s.replica, s.curLimit)
+	glog.Infof("scaling OUT..., replica is to %d", s.replica)
 }
 
 func (s *fancyAutoScaler) checkRegionBalance() bool {

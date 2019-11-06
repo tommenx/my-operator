@@ -58,7 +58,6 @@ func (s *scaleController) ScaleUpAll(ns, tag, val string, limit *IsolationLimit)
 		glog.Errorf("scale up %s:%s error, err=%+v", tag, val)
 		return err
 	}
-	glog.Infof("scale up batch pod success")
 	return nil
 }
 
